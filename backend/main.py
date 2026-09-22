@@ -124,7 +124,7 @@ async def process_lecture(
     extract_frames(
         video_path=str(video_path),
         output_dir=str(job_frames_dir),
-        fps=1
+        fps=2
     )
 
     frame_count = len(list(job_frames_dir.glob("*.jpg")))
