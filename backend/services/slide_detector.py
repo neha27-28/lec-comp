@@ -521,7 +521,8 @@ def detect_slides(
     fps: float = 1.0,
 
     # Main logical-slide threshold
-    change_threshold: float = 0.62,
+    # changed it so that it is more sensitive to slide changes
+    change_threshold: float = 0.70,
 
     # Number of alternate views
     max_views: int = 2,
@@ -573,6 +574,11 @@ def detect_slides(
 
     previous_frame = frame_files[0]
 
+    # At 2 FPS, 6 frames represent approximately 3 seconds.
+    # We use multiple historical frames so that temporary
+    # presenter movement does not look like a slide change.
+    lookback_offsets = [2, 4, 6]
+
     for index in range(
         1,
         len(frame_files),
@@ -580,36 +586,55 @@ def detect_slides(
 
         current_frame = frame_files[index]
 
+        # -------------------------------------------------
+        # Compare with immediately previous frame
+        # -------------------------------------------------
+
         similarity_previous = _frame_similarity(
             previous_frame,
             current_frame,
         )
 
-        # Compare against a frame two seconds/frames back.
-        #
-        # This helps distinguish:
-        #
-        # Teacher moves:
-        #     frame A -> B changes
-        #     B -> A-like frame remains same slide
-        #
-        # Real slide change:
-        #     previous frame changes
-        #     older frame also belongs to old slide
+        # -------------------------------------------------
+        # Compare with several older frames
+        # -------------------------------------------------
 
-        similarity_lookback = similarity_previous
+        historical_similarities = []
 
-        if index >= 2:
+        for offset in lookback_offsets:
 
-            similarity_lookback = _frame_similarity(
-                frame_files[index - 2],
-                current_frame,
-            )
+            if index >= offset:
+
+                historical_frame = frame_files[index - offset]
+
+                similarity = _frame_similarity(
+                    historical_frame,
+                    current_frame,
+                )
+
+                historical_similarities.append(
+                    similarity
+                )
+
+        # -------------------------------------------------
+        # Detect persistent visual change
+        # -------------------------------------------------
+
+        low_similarity_count = sum(
+            similarity < change_threshold
+            for similarity in historical_similarities
+        )
+
+        # A slide change should differ from the immediately
+        # previous frame AND from most of the recent history.
+        #
+        # This makes the detector less sensitive to temporary
+        # presenter movement or occlusion.
 
         actual_slide_change = (
             similarity_previous < change_threshold
             and
-            similarity_lookback < change_threshold
+            low_similarity_count >= 2
         )
 
         if actual_slide_change:

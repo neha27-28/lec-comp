@@ -4,13 +4,56 @@ function App() {
   const [lectureUrl, setLectureUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
 
-  const handleProcess = () => {
-    if (!lectureUrl && !selectedFile) {
+  const [processing, setProcessing] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+
+  const handleProcess = async () => {
+    // Clear previous state
+    setError("");
+    setResult(null);
+
+    // Validate input
+    if (!lectureUrl.trim() && !selectedFile) {
+      setError("Please provide a YouTube URL or upload a video.");
       return;
     }
 
-    // Backend integration will be connected here.
-    console.log("Lecture ready for processing");
+    setProcessing(true);
+
+    try {
+      const formData = new FormData();
+
+      // Add YouTube URL if provided
+      if (lectureUrl.trim()) {
+        formData.append("lecture_url", lectureUrl.trim());
+      }
+
+      // Add uploaded video if provided
+      if (selectedFile) {
+        formData.append("video", selectedFile);
+      }
+
+      const response = await fetch("http://127.0.0.1:8000/process", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Something went wrong while processing the lecture."
+        );
+      }
+
+      setResult(data);
+    } catch (err) {
+      console.error("Processing error:", err);
+      setError(err.message || "Failed to process the lecture.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   return (
@@ -88,6 +131,7 @@ function App() {
               onChange={(e) => setLectureUrl(e.target.value)}
               placeholder="https://youtube.com/..."
               className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm outline-none placeholder:text-charcoal/35"
+              disabled={processing}
             />
 
           </div>
@@ -96,9 +140,11 @@ function App() {
           {/* Divider */}
           <div className="my-6 flex items-center gap-4">
             <div className="h-px flex-1 bg-dove" />
+
             <span className="text-xs font-medium uppercase tracking-wider text-charcoal/40">
               or
             </span>
+
             <div className="h-px flex-1 bg-dove" />
           </div>
 
@@ -122,7 +168,10 @@ function App() {
               type="file"
               accept="video/*"
               className="hidden"
-              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+              disabled={processing}
+              onChange={(e) =>
+                setSelectedFile(e.target.files?.[0] || null)
+              }
             />
 
           </label>
@@ -139,13 +188,53 @@ function App() {
           )}
 
 
+          {/* Error */}
+          {error && (
+            <div className="mt-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+
           {/* Process */}
           <button
             onClick={handleProcess}
-            className="mt-6 w-full rounded-2xl bg-sage px-5 py-3.5 text-sm font-semibold text-warm-ivory transition hover:bg-sage/90 active:scale-[0.99]"
+            disabled={processing}
+            className="mt-6 w-full rounded-2xl bg-sage px-5 py-3.5 text-sm font-semibold text-warm-ivory transition hover:bg-sage/90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Process Lecture
+            {processing ? "Processing lecture..." : "Process Lecture"}
           </button>
+
+
+          {/* Result */}
+          {result && (
+            <div className="mt-6 rounded-2xl border border-sage/30 bg-sage/10 p-5">
+
+              <p className="text-sm font-semibold text-sage">
+                Lecture processed successfully
+              </p>
+
+              <div className="mt-3 space-y-1 text-sm text-charcoal/70">
+
+                <p>
+                  <span className="font-medium">Job ID:</span>{" "}
+                  {result.job_id}
+                </p>
+
+                <p>
+                  <span className="font-medium">Video:</span>{" "}
+                  {result.video}
+                </p>
+
+                <p>
+                  <span className="font-medium">Frames extracted:</span>{" "}
+                  {result.frames_extracted}
+                </p>
+
+              </div>
+
+            </div>
+          )}
 
         </section>
 
@@ -154,6 +243,7 @@ function App() {
         <section className="mx-auto mt-16 max-w-4xl">
 
           <div className="mb-8 text-center">
+
             <p className="text-sm font-medium uppercase tracking-[0.15em] text-sage">
               How it works
             </p>
@@ -161,12 +251,14 @@ function App() {
             <h3 className="mt-2 text-2xl font-semibold">
               One lecture. Three useful layers.
             </h3>
+
           </div>
 
 
           <div className="grid gap-4 md:grid-cols-3">
 
             <div className="rounded-2xl border border-dove bg-white/25 p-6">
+
               <span className="text-sm font-semibold text-sage">
                 01
               </span>
@@ -179,10 +271,12 @@ function App() {
                 Extract the actual slides shown during the lecture rather
                 than generating a summary of them.
               </p>
+
             </div>
 
 
             <div className="rounded-2xl border border-dove bg-white/25 p-6">
+
               <span className="text-sm font-semibold text-sage">
                 02
               </span>
@@ -195,10 +289,12 @@ function App() {
                 Search for something you remember from the lecture without
                 manually scanning the entire recording.
               </p>
+
             </div>
 
 
             <div className="rounded-2xl border border-dove bg-white/25 p-6">
+
               <span className="text-sm font-semibold text-sage">
                 03
               </span>
@@ -212,6 +308,7 @@ function App() {
                 machine instead of sending lecture content to a cloud AI
                 service.
               </p>
+
             </div>
 
           </div>
