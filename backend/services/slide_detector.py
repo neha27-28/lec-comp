@@ -36,8 +36,8 @@ MIN_TRANSITION_GAP = 3
 PERSISTENCE_FRAMES = 3
 
 # Duplicate detection
-PHASH_DISTANCE = 7
-DUPLICATE_SSIM = 0.86
+PHASH_DISTANCE = 5
+DUPLICATE_SSIM = 0.92
 
 # Maximum number of frames sampled while selecting
 # representative images.
@@ -77,9 +77,7 @@ def _load_frame(
             new_height = max(1, int(height * scale))
 
             image = cv2.resize(
-                image,
-                (new_width, new_height),
-                interpolation=cv2.INTER_AREA,
+                image, (new_width, new_height), interpolation=cv2.INTER_AREA
             )
 
     return image
@@ -347,28 +345,60 @@ def _calculate_transition_scores(
 
 def _candidate_transitions(frame_files: list[Path], scores: np.ndarray) -> list[int]:
     """
-    Find adaptive local peaks.
+    Find transition candidates using two visual-signal tiers.
+
+    Tier 1 catches strong transitions.
+
+    Tier 2 deliberately recovers weaker transitions that can occur when
+    two lecture slides use the same template, background, or color palette.
+
+    The recovery tier is still subjected to temporal confirmation later,
+    so lowering the candidate threshold does not automatically create
+    a new slide.
     """
 
-    threshold = _robust_threshold(scores)
+    strong_threshold = _robust_threshold(scores)
 
-    print(f"Adaptive transition threshold: {threshold:.5f}")
+    valid = scores[np.isfinite(scores)]
+
+    if len(valid) == 0:
+        return []
+
+    median = float(np.median(valid))
+    mad = float(np.median(np.abs(valid - median)))
+
+    recovery_threshold = median + 3.0 * max(mad, 1e-5)
+    recovery_percentile = float(np.percentile(valid, 92))
+
+    # Use the less aggressive of the two recovery guards, but never let
+    # the recovery threshold fall below the normal robust baseline.
+    recovery_threshold = max(
+        median + 2.2 * max(mad, 1e-5),
+        min(recovery_threshold, recovery_percentile),
+    )
+
+    print(f"Adaptive transition threshold: {strong_threshold:.5f}")
+    print(f"Recovery transition threshold: {recovery_threshold:.5f}")
 
     candidates: list[int] = []
 
     for i in range(LONG_GAP, len(scores)):
 
-        if scores[i] < threshold:
+        is_strong = scores[i] >= strong_threshold
+        is_recovery = scores[i] >= recovery_threshold
+
+        if not (is_strong or is_recovery):
             continue
 
-        if not _is_local_peak(scores, i, radius=3):
+        radius = 3 if is_strong else 2
+
+        if not _is_local_peak(scores, i, radius=radius):
             continue
 
         # Avoid multiple detections around the same transition.
         if candidates:
             if i - candidates[-1] < MIN_TRANSITION_GAP:
 
-                # Keep whichever frame has the stronger peak.
                 if scores[i] > scores[candidates[-1]]:
                     candidates[-1] = i
 
@@ -574,6 +604,32 @@ def _slide_ssim(image_a: Path, image_b: Path) -> float:
     return float(structural_similarity(a, b))
 
 
+def _edge_similarity(image_a: Path, image_b: Path) -> float:
+    """
+    Compare structural edge maps.
+
+    This is intentionally used as a second guard for duplicate detection.
+    Two slides can have similar global appearance while containing
+    different diagrams or text blocks.
+    """
+
+    a = _load_frame(image_a, max_width=640, max_height=360)
+    b = _load_frame(image_b, max_width=640, max_height=360)
+
+    if a is None or b is None:
+        return 0.0
+
+    a = _resize_gray(a)
+    b = _resize_gray(b)
+
+    edges_a = cv2.Canny(a, 50, 150).astype(np.float32) / 255.0
+    edges_b = cv2.Canny(b, 50, 150).astype(np.float32) / 255.0
+
+    difference = float(np.mean(np.abs(edges_a - edges_b)))
+
+    return 1.0 - difference
+
+
 def _find_duplicate_slide(
     representative: Path, unique_slides: list[dict]
 ) -> Optional[int]:
@@ -589,12 +645,35 @@ def _find_duplicate_slide(
         if distance > PHASH_DISTANCE:
             continue
 
-        similarity = _slide_ssim(representative, Path(slide["_representative_path"]))
+        existing_path = Path(slide["_representative_path"])
 
-        if similarity >= DUPLICATE_SSIM:
+        similarity = _slide_ssim(representative, existing_path)
+
+        if similarity < DUPLICATE_SSIM:
+            continue
+
+        edge_similarity = _edge_similarity(representative, existing_path)
+
+        # Require both global structural similarity and local/layout
+        # similarity before declaring two slides to be the same.
+        if edge_similarity >= 0.90:
             return index
 
     return None
+
+
+# ============================================================
+# FINAL OCR-FREE DUPLICATE POLICY
+# ============================================================
+
+# A slide is merged with an existing unique slide only when:
+#
+# 1. pHash is close,
+# 2. SSIM is very high,
+# 3. edge/layout similarity is also high.
+#
+# This deliberately favors recall of genuinely different slides
+# over aggressive duplicate merging.
 
 
 # ============================================================
@@ -621,72 +700,10 @@ def _save_slide_image(
 
 
 def detect_slides(
-    frames_dir: str | Path,
-    output_dir: str | Path | None = None,
-    *,
-    slides_dir: str | Path | None = None,
-    fps: float = 2.0,
-    change_threshold: float | None = None,
-    max_views: int = 2,
-    min_view_gain: float = 0.04,
+    frames_dir: str | Path, output_dir: str | Path | None = None
 ) -> list[dict]:
-    """
-    Detect logical slide appearances and group repeated slides.
-
-    Parameters
-    ----------
-    frames_dir:
-        Directory containing extracted video frames.
-
-    output_dir:
-        Directory where detected slide images are written.
-
-    slides_dir:
-        Backward-compatible alias for output_dir.
-
-    fps:
-        Frame extraction rate. Used to convert frame numbers
-        into timestamps.
-
-    change_threshold:
-        Retained for compatibility with older callers.
-        The current detector uses its adaptive threshold.
-
-    max_views:
-        Maximum number of representative views to preserve.
-
-    min_view_gain:
-        Minimum additional coverage required for a second view.
-    """
-
-    # --------------------------------------------------------
-    # Validate output directory arguments
-    # --------------------------------------------------------
-
-    if output_dir is not None and slides_dir is not None:
-
-        if Path(output_dir) != Path(slides_dir):
-            raise ValueError("Provide only one of output_dir or slides_dir.")
-
-    if output_dir is None:
-        output_dir = slides_dir
-
-    if output_dir is None:
-        output_dir = Path(frames_dir).parent / "slides"
-
-    if fps <= 0:
-        raise ValueError("fps must be greater than zero.")
-
-    if max_views < 1:
-        raise ValueError("max_views must be at least 1.")
-
-    # Compatibility parameters.
-    # The current detector determines its own transition
-    # threshold adaptively.
-    _ = change_threshold
 
     frames_dir = Path(frames_dir)
-    output_dir = Path(output_dir)
 
     if not frames_dir.exists():
         raise FileNotFoundError(f"Frames directory not found: {frames_dir}")
@@ -704,13 +721,15 @@ def detect_slides(
     print("LECTURE COMPANION - SLIDE DETECTION")
     print("=" * 40)
     print(f"Input frames: {len(frame_files)}")
-    print(f"FPS: {fps}")
     print()
 
-    output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    if output_dir is None:
+        output_dir = frames_dir.parent / "slides"
+
+    output_dir = Path(output_dir)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     # --------------------------------------------------------
     # 1. Detect logical slide appearances
     # --------------------------------------------------------
@@ -773,15 +792,12 @@ def detect_slides(
 
             duplicate_index = len(unique_slides) - 1
 
-        # needed to store the occurrence of the slide in the unique slides list
         unique_slides[duplicate_index]["occurrences"].append(
             {
                 "appearance_index": appearance["appearance_index"],
                 "start_frame": appearance["start_frame"],
                 "end_frame": appearance["end_frame"],
                 "frame_count": appearance["frame_count"],
-                "start_time": appearance["start_frame"] / fps,
-                "end_time": (appearance["end_frame"] + 1) / fps,
             }
         )
 
@@ -792,16 +808,10 @@ def detect_slides(
     results = []
 
     for slide in unique_slides:
+
         cleaned = {
             key: value for key, value in slide.items() if not key.startswith("_")
         }
-
-        if cleaned["occurrences"]:
-            first_occurrence = cleaned["occurrences"][0]
-
-            cleaned["start_time"] = first_occurrence["start_time"]
-            cleaned["end_time"] = first_occurrence["end_time"]
-            cleaned["timestamp"] = first_occurrence["start_time"]
 
         results.append(cleaned)
 
@@ -814,12 +824,39 @@ def detect_slides(
     print("Slide Detection")
     print("=" * 40)
 
-    print(f"Input frames: {len(frame_files)}")
-    print(f"Candidate transitions: {stats['candidate_transitions']}")
-    print(f"Confirmed transitions: {stats['confirmed_transitions']}")
-    print(f"Logical slide appearances: {len(groups)}")
-    print(f"Unique slides: {len(results)}")
-    print(f"Slide output directory: {output_dir}")
+    print(f"Input frames: " f"{len(frame_files)}")
+
+    print(f"Candidate transitions: " f"{stats['candidate_transitions']}")
+
+    print(f"Confirmed transitions: " f"{stats['confirmed_transitions']}")
+
+    print(f"Logical slide appearances: " f"{len(groups)}")
+
+    print(f"Unique slides: " f"{len(results)}")
+
+    print(f"Slide output directory: " f"{output_dir}")
+
     print("=" * 40)
 
     return results
+
+
+# ============================================================
+# DEBUG / DIRECT TEST
+# ============================================================
+
+if __name__ == "__main__":
+
+    # Existing extracted-frame dataset.
+    # This allows us to test the detector without downloading
+    # the YouTube video or running FFmpeg again.
+
+    TEST_JOB_ID = "b739d6db"
+
+    BASE_DIR = Path(__file__).resolve().parents[1]
+
+    FRAMES_DIR = BASE_DIR / "data" / "frames" / TEST_JOB_ID
+
+    SLIDES_DIR = BASE_DIR / "data" / "slides" / TEST_JOB_ID
+
+    detect_slides(FRAMES_DIR, SLIDES_DIR)

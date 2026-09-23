@@ -1,4 +1,8 @@
+
+
 import { useState } from "react";
+
+const API_BASE_URL = "http://127.0.0.1:8000";
 
 function App() {
   const [lectureUrl, setLectureUrl] = useState("");
@@ -15,7 +19,9 @@ function App() {
 
     // Validate input
     if (!lectureUrl.trim() && !selectedFile) {
-      setError("Please provide a YouTube URL or upload a video.");
+      setError(
+        "Please provide a YouTube URL or upload a video."
+      );
       return;
     }
 
@@ -26,44 +32,130 @@ function App() {
 
       // Add YouTube URL if provided
       if (lectureUrl.trim()) {
-        formData.append("lecture_url", lectureUrl.trim());
+        formData.append(
+          "lecture_url",
+          lectureUrl.trim()
+        );
       }
 
       // Add uploaded video if provided
       if (selectedFile) {
-        formData.append("video", selectedFile);
+        formData.append(
+          "video",
+          selectedFile
+        );
       }
 
-      const response = await fetch("http://127.0.0.1:8000/process", {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/process`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.detail || "Something went wrong while processing the lecture."
+          data.detail ||
+          "Something went wrong while processing the lecture."
         );
       }
 
       setResult(data);
+
     } catch (err) {
-      console.error("Processing error:", err);
-      setError(err.message || "Failed to process the lecture.");
+
+      console.error(
+        "Processing error:",
+        err
+      );
+
+      setError(
+        err.message ||
+        "Failed to process the lecture."
+      );
+
     } finally {
+
       setProcessing(false);
     }
   };
+
+
+  const handleDownloadPdf = async () => {
+
+    if (!result?.job_id) {
+      return;
+    }
+
+    try {
+
+      setError("");
+
+      const response = await fetch(
+        `${API_BASE_URL}/jobs/${result.job_id}/slides.pdf`
+      );
+
+      if (!response.ok) {
+
+        const data = await response
+          .json()
+          .catch(() => null);
+
+        throw new Error(
+          data?.detail ||
+          "Could not download the slides PDF."
+        );
+      }
+
+      const blob = await response.blob();
+
+      const downloadUrl =
+        window.URL.createObjectURL(blob);
+
+      const link =
+        document.createElement("a");
+
+      link.href = downloadUrl;
+      link.download = "lecture_slides.pdf";
+
+      document.body.appendChild(link);
+
+      link.click();
+
+      link.remove();
+
+      window.URL.revokeObjectURL(
+        downloadUrl
+      );
+
+    } catch (err) {
+
+      console.error(
+        "PDF download error:",
+        err
+      );
+
+      setError(
+        err.message ||
+        "Failed to download the slides PDF."
+      );
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-warm-ivory text-charcoal">
 
       {/* Header */}
       <header className="border-b border-dove/60">
+
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
 
           <div>
+
             <h1 className="text-xl font-semibold tracking-tight">
               Lecture Companion
             </h1>
@@ -71,14 +163,19 @@ function App() {
             <p className="mt-1 text-sm text-charcoal/60">
               Search. Learn. Revise.
             </p>
+
           </div>
 
           <div className="flex items-center gap-2 rounded-full border border-dove bg-warm-ivory px-3 py-1.5 text-xs text-charcoal/70">
+
             <span className="h-2 w-2 rounded-full bg-sage" />
+
             Local processing
+
           </div>
 
         </div>
+
       </header>
 
 
@@ -108,6 +205,7 @@ function App() {
         <section className="mx-auto mt-12 max-w-3xl rounded-3xl border border-dove bg-white/30 p-7 shadow-sm">
 
           <div className="mb-6">
+
             <h3 className="text-lg font-semibold">
               Add a lecture
             </h3>
@@ -115,6 +213,7 @@ function App() {
             <p className="mt-1 text-sm text-charcoal/60">
               Paste a YouTube lecture URL or upload a video from your computer.
             </p>
+
           </div>
 
 
@@ -128,7 +227,9 @@ function App() {
             <input
               type="url"
               value={lectureUrl}
-              onChange={(e) => setLectureUrl(e.target.value)}
+              onChange={(e) =>
+                setLectureUrl(e.target.value)
+              }
               placeholder="https://youtube.com/..."
               className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm outline-none placeholder:text-charcoal/35"
               disabled={processing}
@@ -139,6 +240,7 @@ function App() {
 
           {/* Divider */}
           <div className="my-6 flex items-center gap-4">
+
             <div className="h-px flex-1 bg-dove" />
 
             <span className="text-xs font-medium uppercase tracking-wider text-charcoal/40">
@@ -146,6 +248,7 @@ function App() {
             </span>
 
             <div className="h-px flex-1 bg-dove" />
+
           </div>
 
 
@@ -170,7 +273,9 @@ function App() {
               className="hidden"
               disabled={processing}
               onChange={(e) =>
-                setSelectedFile(e.target.files?.[0] || null)
+                setSelectedFile(
+                  e.target.files?.[0] || null
+                )
               }
             />
 
@@ -179,20 +284,27 @@ function App() {
 
           {/* Selected file */}
           {selectedFile && (
+
             <div className="mt-4 rounded-xl bg-sage/10 px-4 py-3 text-sm text-charcoal">
+
               Selected:{" "}
+
               <span className="font-medium">
                 {selectedFile.name}
               </span>
+
             </div>
+
           )}
 
 
           {/* Error */}
           {error && (
+
             <div className="mt-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
             </div>
+
           )}
 
 
@@ -202,12 +314,17 @@ function App() {
             disabled={processing}
             className="mt-6 w-full rounded-2xl bg-sage px-5 py-3.5 text-sm font-semibold text-warm-ivory transition hover:bg-sage/90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {processing ? "Processing lecture..." : "Process Lecture"}
+
+            {processing
+              ? "Processing lecture..."
+              : "Process Lecture"}
+
           </button>
 
 
           {/* Result */}
           {result && (
+
             <div className="mt-6 rounded-2xl border border-sage/30 bg-sage/10 p-5">
 
               <p className="text-sm font-semibold text-sage">
@@ -217,23 +334,58 @@ function App() {
               <div className="mt-3 space-y-1 text-sm text-charcoal/70">
 
                 <p>
-                  <span className="font-medium">Job ID:</span>{" "}
+                  <span className="font-medium">
+                    Job ID:
+                  </span>{" "}
                   {result.job_id}
                 </p>
 
                 <p>
-                  <span className="font-medium">Video:</span>{" "}
+                  <span className="font-medium">
+                    Video:
+                  </span>{" "}
                   {result.video}
                 </p>
 
                 <p>
-                  <span className="font-medium">Frames extracted:</span>{" "}
+                  <span className="font-medium">
+                    Frames extracted:
+                  </span>{" "}
                   {result.frames_extracted}
+                </p>
+
+                <p>
+                  <span className="font-medium">
+                    Unique slides:
+                  </span>{" "}
+                  {result.slides_detected}
                 </p>
 
               </div>
 
+
+              {/* PDF download */}
+              {result.pdf_available && (
+
+                <div className="mt-5 border-t border-sage/20 pt-5">
+
+                  <p className="text-sm text-charcoal/65">
+                    Your unique lecture slides are ready.
+                  </p>
+
+                  <button
+                    onClick={handleDownloadPdf}
+                    className="mt-3 inline-flex items-center justify-center rounded-xl bg-charcoal px-5 py-3 text-sm font-semibold text-warm-ivory transition hover:bg-charcoal/90 active:scale-[0.99]"
+                  >
+                    Download Slides PDF
+                  </button>
+
+                </div>
+
+              )}
+
             </div>
+
           )}
 
         </section>
