@@ -77,7 +77,9 @@ def _load_frame(
             new_height = max(1, int(height * scale))
 
             image = cv2.resize(
-                image, (new_width, new_height), interpolation=cv2.INTER_AREA
+                image,
+                (new_width, new_height),
+                interpolation=cv2.INTER_AREA,
             )
 
     return image
@@ -619,10 +621,72 @@ def _save_slide_image(
 
 
 def detect_slides(
-    frames_dir: str | Path, output_dir: str | Path | None = None
+    frames_dir: str | Path,
+    output_dir: str | Path | None = None,
+    *,
+    slides_dir: str | Path | None = None,
+    fps: float = 2.0,
+    change_threshold: float | None = None,
+    max_views: int = 2,
+    min_view_gain: float = 0.04,
 ) -> list[dict]:
+    """
+    Detect logical slide appearances and group repeated slides.
+
+    Parameters
+    ----------
+    frames_dir:
+        Directory containing extracted video frames.
+
+    output_dir:
+        Directory where detected slide images are written.
+
+    slides_dir:
+        Backward-compatible alias for output_dir.
+
+    fps:
+        Frame extraction rate. Used to convert frame numbers
+        into timestamps.
+
+    change_threshold:
+        Retained for compatibility with older callers.
+        The current detector uses its adaptive threshold.
+
+    max_views:
+        Maximum number of representative views to preserve.
+
+    min_view_gain:
+        Minimum additional coverage required for a second view.
+    """
+
+    # --------------------------------------------------------
+    # Validate output directory arguments
+    # --------------------------------------------------------
+
+    if output_dir is not None and slides_dir is not None:
+
+        if Path(output_dir) != Path(slides_dir):
+            raise ValueError("Provide only one of output_dir or slides_dir.")
+
+    if output_dir is None:
+        output_dir = slides_dir
+
+    if output_dir is None:
+        output_dir = Path(frames_dir).parent / "slides"
+
+    if fps <= 0:
+        raise ValueError("fps must be greater than zero.")
+
+    if max_views < 1:
+        raise ValueError("max_views must be at least 1.")
+
+    # Compatibility parameters.
+    # The current detector determines its own transition
+    # threshold adaptively.
+    _ = change_threshold
 
     frames_dir = Path(frames_dir)
+    output_dir = Path(output_dir)
 
     if not frames_dir.exists():
         raise FileNotFoundError(f"Frames directory not found: {frames_dir}")
@@ -640,15 +704,13 @@ def detect_slides(
     print("LECTURE COMPANION - SLIDE DETECTION")
     print("=" * 40)
     print(f"Input frames: {len(frame_files)}")
+    print(f"FPS: {fps}")
     print()
 
-    if output_dir is None:
-        output_dir = frames_dir.parent / "slides"
-
-    output_dir = Path(output_dir)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     # --------------------------------------------------------
     # 1. Detect logical slide appearances
     # --------------------------------------------------------
@@ -711,12 +773,15 @@ def detect_slides(
 
             duplicate_index = len(unique_slides) - 1
 
+        # needed to store the occurrence of the slide in the unique slides list
         unique_slides[duplicate_index]["occurrences"].append(
             {
                 "appearance_index": appearance["appearance_index"],
                 "start_frame": appearance["start_frame"],
                 "end_frame": appearance["end_frame"],
                 "frame_count": appearance["frame_count"],
+                "start_time": appearance["start_frame"] / fps,
+                "end_time": (appearance["end_frame"] + 1) / fps,
             }
         )
 
@@ -727,10 +792,16 @@ def detect_slides(
     results = []
 
     for slide in unique_slides:
-
         cleaned = {
             key: value for key, value in slide.items() if not key.startswith("_")
         }
+
+        if cleaned["occurrences"]:
+            first_occurrence = cleaned["occurrences"][0]
+
+            cleaned["start_time"] = first_occurrence["start_time"]
+            cleaned["end_time"] = first_occurrence["end_time"]
+            cleaned["timestamp"] = first_occurrence["start_time"]
 
         results.append(cleaned)
 
@@ -743,39 +814,12 @@ def detect_slides(
     print("Slide Detection")
     print("=" * 40)
 
-    print(f"Input frames: " f"{len(frame_files)}")
-
-    print(f"Candidate transitions: " f"{stats['candidate_transitions']}")
-
-    print(f"Confirmed transitions: " f"{stats['confirmed_transitions']}")
-
-    print(f"Logical slide appearances: " f"{len(groups)}")
-
-    print(f"Unique slides: " f"{len(results)}")
-
-    print(f"Slide output directory: " f"{output_dir}")
-
+    print(f"Input frames: {len(frame_files)}")
+    print(f"Candidate transitions: {stats['candidate_transitions']}")
+    print(f"Confirmed transitions: {stats['confirmed_transitions']}")
+    print(f"Logical slide appearances: {len(groups)}")
+    print(f"Unique slides: {len(results)}")
+    print(f"Slide output directory: {output_dir}")
     print("=" * 40)
 
     return results
-
-
-# ============================================================
-# DEBUG / DIRECT TEST
-# ============================================================
-
-if __name__ == "__main__":
-
-    # Existing extracted-frame dataset.
-    # This allows us to test the detector without downloading
-    # the YouTube video or running FFmpeg again.
-
-    TEST_JOB_ID = "b739d6db"
-
-    BASE_DIR = Path(__file__).resolve().parents[1]
-
-    FRAMES_DIR = BASE_DIR / "data" / "frames" / TEST_JOB_ID
-
-    SLIDES_DIR = BASE_DIR / "data" / "slides" / TEST_JOB_ID
-
-    detect_slides(FRAMES_DIR, SLIDES_DIR)

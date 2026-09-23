@@ -1,56 +1,57 @@
+from pathlib import Path
+import argparse
+
 from services.slide_detector import detect_slides
 
 
-frames_dir = "data/frames/c2d1d098"
+def main() -> None:
 
-slides_dir = "data/slides/c2d1d098"
-
-
-slides = detect_slides(
-
-    frames_dir=frames_dir,
-
-    slides_dir=slides_dir,
-
-    fps=1.0,
-
-    change_threshold=0.62,
-
-    max_views=2,
-
-    min_view_gain=0.04,
-
-)
-
-
-print("\nSlide detection completed!")
-
-print(
-    f"Logical slides detected: {len(slides)}"
-)
-
-
-for slide in slides:
-
-    print(
-        f"\nSlide {slide['slide_number']}: "
-        f"{slide['image_path']}"
+    parser = argparse.ArgumentParser(
+        description="Run Lecture Companion slide detection."
     )
 
-    print(
-        f"  Timestamp: "
-        f"{slide['timestamp']}s"
+    parser.add_argument(
+        "frames_dir",
+        type=Path,
+        help="Directory containing extracted frames.",
     )
 
-    print(
-        f"  Number of views: "
-        f"{len(slide['views'])}"
+    parser.add_argument(
+        "slides_dir",
+        type=Path,
+        help="Directory where detected slides will be saved.",
     )
 
-    for view in slide["views"]:
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=2.0,
+        help="Frame extraction rate. Default: 2.0",
+    )
 
-        print(
-            f"    View: {view['image_path']} "
-            f"| timestamp={view['timestamp']}s "
-            f"| visibility={view['visibility']}"
-        )
+    args = parser.parse_args()
+
+    slides = detect_slides(
+        frames_dir=args.frames_dir,
+        output_dir=args.slides_dir,
+        fps=args.fps,
+    )
+
+    print()
+    print("Slide detection completed!")
+    print(f"Unique slides detected: {len(slides)}")
+
+    for slide in slides:
+
+        print()
+        print(f"Slide {slide['slide_number']}")
+
+        print(f"Image: {slide['image_path']}")
+
+        print(f"Timestamp: " f"{slide.get('timestamp', 0.0):.2f}s")
+
+        print(f"Occurrences: " f"{len(slide['occurrences'])}")
+
+
+if __name__ == "__main__":
+    main()

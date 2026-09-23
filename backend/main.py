@@ -126,9 +126,9 @@ async def process_lecture(
         slides_dir=str(job_slides_dir),
         fps=2.0,
         #changed threshold to be more sensitive to slide changes
-        change_threshold=0.70, 
-        max_views=2,
-        min_view_gain=0.04,
+        #change_threshold=0.70, 
+        #max_views=2,
+        #min_view_gain=0.04,
     )
 
     frame_count = len(list(job_frames_dir.glob("*.jpg")))
