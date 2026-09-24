@@ -4,6 +4,9 @@ import argparse
 from services.slide_detector import detect_slides
 
 
+FPS = 3.0
+
+
 def main() -> None:
 
     parser = argparse.ArgumentParser(
@@ -22,35 +25,38 @@ def main() -> None:
         help="Directory where detected slides will be saved.",
     )
 
-    parser.add_argument(
-        "--fps",
-        type=float,
-        default=2.0,
-        help="Frame extraction rate. Default: 2.0",
-    )
-
     args = parser.parse_args()
 
     slides = detect_slides(
         frames_dir=args.frames_dir,
         output_dir=args.slides_dir,
-        fps=args.fps,
     )
 
     print()
-    print("Slide detection completed!")
-    print(f"Unique slides detected: {len(slides)}")
+    print("=" * 60)
+    print("SLIDE TIMELINE")
+    print("=" * 60)
 
     for slide in slides:
 
         print()
-        print(f"Slide {slide['slide_number']}")
+        print(f"Slide {slide['slide_id']}")
+        print(f"Image: {slide['representative_path']}")
+        print(f"Occurrences: {len(slide['occurrences'])}")
 
-        print(f"Image: {slide['image_path']}")
+        for occurrence in slide["occurrences"]:
 
-        print(f"Timestamp: " f"{slide.get('timestamp', 0.0):.2f}s")
+            start_frame = occurrence["start_frame"]
+            end_frame = occurrence["end_frame"]
 
-        print(f"Occurrences: " f"{len(slide['occurrences'])}")
+            start_time = start_frame / FPS
+            end_time = (end_frame + 1) / FPS
+
+            print(
+                f"  Occurrence {occurrence['appearance_index']}: "
+                f"{start_time:.2f}s → {end_time:.2f}s "
+                f"({start_frame} → {end_frame})"
+            )
 
 
 if __name__ == "__main__":
