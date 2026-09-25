@@ -9,6 +9,37 @@ function formatTime(seconds = 0) {
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+function formatDuration(seconds = 0) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${secs}s`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  }
+
+  return `${secs}s`;
+}
+
+function formatBytes(bytes = 0) {
+  const value = Number(bytes) || 0;
+
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+
+  if (value < 1024 * 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 function getFilename(path = "") {
   return String(path).split(/[\\/]/).pop();
 }
@@ -123,7 +154,7 @@ function App() {
     }
 
     videoRef.current.currentTime = Number(seconds) || 0;
-    videoRef.current.play().catch(() => {});
+    videoRef.current.play().catch(() => { });
     videoRef.current.scrollIntoView({
       behavior: "smooth",
       block: "center",
@@ -148,7 +179,7 @@ function App() {
       const link = document.createElement("a");
 
       link.href = downloadUrl;
-      link.download = "lecture_slides.pdf";
+      link.download = result?.pdf_filename || "lecture_slides.pdf";
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -295,6 +326,82 @@ function App() {
               </div>
             </div>
 
+            {result.performance && (
+              <section className="mt-6 rounded-3xl border border-dove bg-white/30 p-6">
+                <div className="mb-5">
+                  <p className="text-sm font-medium uppercase tracking-[0.15em] text-sage">
+                    Processing summary
+                  </p>
+                  <h3 className="mt-2 text-xl font-semibold">
+                    Lecture performance
+                  </h3>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-2xl border border-dove bg-warm-ivory/60 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wider text-charcoal/40">
+                      Lecture duration
+                    </p>
+                    <p className="mt-2 text-lg font-semibold">
+                      {formatDuration(result.performance.video_duration_sec)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-dove bg-warm-ivory/60 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wider text-charcoal/40">
+                      Processing time
+                    </p>
+                    <p className="mt-2 text-lg font-semibold">
+                      {formatDuration(result.performance.total_processing_time_sec)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-dove bg-warm-ivory/60 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wider text-charcoal/40">
+                      Processing ratio
+                    </p>
+                    <p className="mt-2 text-lg font-semibold">
+                      {result.performance.processing_ratio != null
+                        ? `${Number(result.performance.processing_ratio).toFixed(2)}×`
+                        : "—"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-dove bg-warm-ivory/60 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wider text-charcoal/40">
+                      Input size
+                    </p>
+                    <p className="mt-2 text-lg font-semibold">
+                      {formatBytes(result.performance.video_size_bytes)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-dove bg-white/40 px-4 py-3">
+                    <p className="text-xs text-charcoal/40">Frames processed</p>
+                    <p className="mt-1 font-semibold">
+                      {result.performance.frames_extracted?.toLocaleString() || "0"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-dove bg-white/40 px-4 py-3">
+                    <p className="text-xs text-charcoal/40">Unique slides</p>
+                    <p className="mt-1 font-semibold">
+                      {result.performance.unique_slides || 0}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-dove bg-white/40 px-4 py-3">
+                    <p className="text-xs text-charcoal/40">Transcript segments</p>
+                    <p className="mt-1 font-semibold">
+                      {result.performance.transcript_segments || 0}
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
             <div className="mt-8 grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
               <div className="rounded-3xl border border-dove bg-white/30 p-6">
                 <div className="mb-5">
@@ -311,6 +418,7 @@ function App() {
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="e.g. bubble sort adjacent elements"
+                    maxLength={200}
                     className="min-w-0 flex-1 rounded-2xl border border-dove bg-warm-ivory px-4 py-3 text-sm outline-none focus:border-sage"
                   />
 
@@ -335,7 +443,7 @@ function App() {
                   </p>
                 )}
 
-                <div className="mt-6 space-y-4">
+                <div className="mt-6 max-h-[70vh] space-y-4 overflow-y-auto pr-2">
                   {searchResults.map((item) => (
                     <button
                       key={item.id}
@@ -374,13 +482,13 @@ function App() {
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-dove bg-charcoal p-4">
+              <div className="rounded-3xl border border-dove bg-transparent p-4">
                 <div className="mb-3 flex items-center justify-between px-2">
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wider text-dusty-rose">
+                    <p className="text-xs font-medium uppercase tracking-wider text-sage">
                       Lecture
                     </p>
-                    <p className="mt-1 text-sm font-medium text-warm-ivory">
+                    <p className="mt-1 text-sm font-medium text-charcoal">
                       Click a search result to jump here
                     </p>
                   </div>
@@ -389,12 +497,13 @@ function App() {
                 <video
                   ref={videoRef}
                   controls
-                  className="w-full rounded-2xl bg-black"
+                  className="w-full rounded-2xl"
                   src={`${API_BASE_URL}/jobs/${jobId}/video`}
                 />
               </div>
             </div>
 
+            {/*      
             {slideList.length > 0 && (
               <section className="mt-10">
                 <div className="mb-5">
@@ -432,7 +541,7 @@ function App() {
                   })}
                 </div>
               </section>
-            )}
+            )}*/}
           </section>
         )}
 
