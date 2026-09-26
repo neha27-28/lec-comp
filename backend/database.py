@@ -371,7 +371,7 @@ def save_linked_slides(
 def search_lecture(
     job_id: str,
     query: str,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
     words = [
         word
         for word in query.split()
@@ -379,11 +379,30 @@ def search_lecture(
     ]
 
     if not words:
-        return []
+        return [], 0
 
     fts_query = " OR ".join(words)
 
     with get_connection() as connection:
+
+        # First get the total number of matching results.
+        count_row = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM speech_fts AS sf
+            JOIN speech_segments AS ss
+                ON ss.id = sf.speech_segment_id
+            WHERE sf.job_id = ?
+              AND speech_fts MATCH ?
+            """,
+            (job_id, fts_query),
+        ).fetchone()
+
+        result_count = int(count_row[0]) if count_row else 0
+
+        # Then fetch the actual results.
+        # BM25 is retained as a relevance score,
+        # but timestamp controls the displayed order.
         rows = connection.execute(
             """
             SELECT
@@ -399,10 +418,12 @@ def search_lecture(
                 ON ss.id = sf.speech_segment_id
             WHERE sf.job_id = ?
               AND speech_fts MATCH ?
-            ORDER BY rank ASC, ss.start_time ASC
+            ORDER BY ss.start_time ASC
             LIMIT 50
             """,
             (job_id, fts_query),
         ).fetchall()
 
-    return [dict(row) for row in rows]
+    results = [dict(row) for row in rows]
+
+    return results, result_count

@@ -1410,7 +1410,7 @@ def search_job(
 
     try:
 
-        results = search_lecture(
+        results, result_count = search_lecture(
             job_id=job_id,
             query=query,
         )
@@ -1419,10 +1419,11 @@ def search_job(
             "status": "success",
             "job_id": job_id,
             "query": query,
+            "result_count": result_count,
             "results": results,
         }
 
-    except Exception:
+    except Exception as exc:
 
         logger.exception(
             "Search failed for job %s",
@@ -1432,7 +1433,7 @@ def search_job(
         raise HTTPException(
             status_code=500,
             detail="Search failed.",
-        )
+        ) from exc
 
 
 # ============================================================

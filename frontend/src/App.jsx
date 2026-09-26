@@ -62,6 +62,7 @@ function App() {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
+  const [searchResultCount, setSearchResultCount] = useState(0);
   const [searchError, setSearchError] = useState("");
 
   const jobId = result?.job_id;
@@ -76,6 +77,7 @@ function App() {
     setSearchError("");
     setResult(null);
     setSearchResults([]);
+    setSearchResultCount(0);
 
     if (!lectureUrl.trim() && !selectedFile) {
       setError("Please provide a YouTube URL or upload a video.");
@@ -139,9 +141,11 @@ function App() {
       }
 
       setSearchResults(data.results || []);
+      setSearchResultCount(Number(data.result_count) || 0);
     } catch (err) {
       console.error("Search error:", err);
       setSearchResults([]);
+      setSearchResultCount(0);
       setSearchError(err.message || "Search failed.");
     } finally {
       setSearching(false);
@@ -434,6 +438,13 @@ function App() {
                 {searchError && (
                   <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
                     {searchError}
+                  </p>
+                )}
+
+                {!searching && query && !searchError && searchResultCount > 0 && (
+                  <p className="mt-4 text-sm text-charcoal/50">
+                    {searchResultCount}{" "}
+                    {searchResultCount === 1 ? "result" : "results"} found
                   </p>
                 )}
 
